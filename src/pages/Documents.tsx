@@ -1,0 +1,32 @@
+import { useMemo, useRef, useState } from 'react'
+import { Download, FilePlus2, FileText, FolderOpen, Search, Upload, X } from 'lucide-react'
+import { useDocuments, usePeople } from '../hooks'
+import type { DocumentType, HrDocument } from '../types'
+
+const labels: Record<DocumentType, string> = { EMPLOYMENT_CONTRACT:'Contrat de travail', INTERNSHIP_CONTRACT:'Convention de stage', WORK_ATTESTATION:'Attestation de travail', INTERNSHIP_ATTESTATION:'Attestation de stage', WORK_CERTIFICATE:'Certificat de travail', INTERNSHIP_CERTIFICATE:'Certificat de stage', RESIGNATION_LETTER:'Lettre de démission', OTHER:'Autre document' }
+const groups: {label:string; types:DocumentType[]}[] = [
+  {label:'Contrats',types:['EMPLOYMENT_CONTRACT','INTERNSHIP_CONTRACT']},
+  {label:'Attestations',types:['WORK_ATTESTATION','INTERNSHIP_ATTESTATION']},
+  {label:'Certificats',types:['WORK_CERTIFICATE','INTERNSHIP_CERTIFICATE']},
+  {label:'Démissions',types:['RESIGNATION_LETTER']},
+]
+
+export default function Documents(){
+ const { data: docs, addDocument, removeDocument } = useDocuments(); const { data: people } = usePeople()
+ const [filter,setFilter]=useState<DocumentType|'ALL'>('ALL'); const [query,setQuery]=useState(''); const [open,setOpen]=useState(false); const [preview,setPreview]=useState<HrDocument|null>(null)
+ const rows=useMemo(()=>docs.filter(d=>(filter==='ALL'||d.document_type===filter)&&(`${d.title} ${d.employee_name} ${labels[d.document_type]}`).toLowerCase().includes(query.toLowerCase())),[docs,filter,query])
+ return <>
+  <div className="page-intro compact"><div><p className="eyebrow">Gestion documentaire</p><h1>Documents RH <span className="title-dot">•</span></h1><p className="subtle">Centralisez, consultez et archivez les documents administratifs des collaborateurs.</p></div><button className="primary-button" onClick={()=>setOpen(true)}><FilePlus2 size={16}/>Ajouter un document</button></div>
+  <div className="document-kpis"><div><FileText size={19}/><strong>{docs.length}</strong><span>Documents</span></div><div><FolderOpen size={19}/><strong>{new Set(docs.map(d=>d.person_id)).size}</strong><span>Collaborateurs</span></div><div><Upload size={19}/><strong>{docs.filter(d=>d.source==='UPLOAD').length}</strong><span>Fichiers importés</span></div></div>
+  <div className="document-tabs"><button className={filter==='ALL'?'active':''} onClick={()=>setFilter('ALL')}>Tous</button>{groups.map(g=><button key={g.label} className={g.types.includes(filter as DocumentType)?'active':''} onClick={()=>setFilter(g.types[0])}>{g.label}</button>)}</div>
+  <section className="table-card documents-card"><div className="documents-toolbar"><div><strong>Bibliothèque documentaire</strong><span>{rows.length} document(s) affiché(s)</span></div><label className="search-box"><Search size={15}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Rechercher..."/></label></div>
+  <div className="documents-table"><div className="documents-header"><span>Document</span><span>Collaborateur</span><span>Date</span><span>Statut</span><span>Actions</span></div>{rows.length?rows.map(d=><div className="document-row" key={d.id}><div className="doc-title"><FileText size={18}/><div><strong>{d.title}</strong><small>{labels[d.document_type]} · {d.file_name}</small></div></div><span>{d.employee_name}</span><span>{new Date(d.created_at).toLocaleDateString('fr-FR')}</span><span className={`doc-status ${d.status.toLowerCase()}`}>{d.status}</span><div className="doc-actions"><button onClick={()=>setPreview(d)} title="Voir"><FileText size={15}/></button>{d.file_url&&<a href={d.file_url} download={d.file_name} title="Télécharger"><Download size={15}/></a>}<button onClick={()=>removeDocument(d.id)} title="Supprimer"><X size={15}/></button></div></div>):<div className="empty-state"><FileText size={17}/>Aucun document trouvé</div>}</div></section>
+  {open&&<DocumentModal people={people} onClose={()=>setOpen(false)} onSave={d=>{addDocument(d);setOpen(false)}}/>}
+  {preview&&<div className="modal-backdrop"><div className="preview-modal"><button className="modal-close" onClick={()=>setPreview(null)}><X size={18}/></button><FileText size={34}/><h2>{preview.title}</h2><p>{labels[preview.document_type]} · {preview.employee_name}</p><div className="pdf-placeholder">Aperçu du document PDF<br/><small>{preview.file_name}</small></div>{preview.file_url&&<a className="primary-button" href={preview.file_url} download={preview.file_name}><Download size={16}/>Télécharger</a>}</div></div>}
+ </>
+}
+function DocumentModal({people,onClose,onSave}:{people:any[];onClose:()=>void;onSave:(d:Omit<HrDocument,'id'|'created_at'>)=>void}){
+ const fileRef=useRef<HTMLInputElement>(null); const [type,setType]=useState<DocumentType>('EMPLOYMENT_CONTRACT'); const [person,setPerson]=useState(''); const [title,setTitle]=useState(''); const [file,setFile]=useState<File|null>(null)
+ const submit=(e:React.FormEvent)=>{e.preventDefault();const p=people.find(x=>String(x.id)===person);if(!p||!title.trim())return;onSave({person_id:p.id,employee_name:p.full_name,document_type:type,title:title.trim(),file_name:file?.name||`${title}.pdf`,file_url:file?URL.createObjectURL(file):null,status:'ARCHIVED',source:file?'UPLOAD':'GENERATED'})}
+ return <div className="modal-backdrop"><form className="document-modal" onSubmit={submit}><button type="button" className="modal-close" onClick={onClose}><X size={18}/></button><p className="eyebrow">Nouveau document</p><h2>Ajouter un document RH</h2><label>Type<select value={type} onChange={e=>setType(e.target.value as DocumentType)}>{Object.entries(labels).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></label><label>Collaborateur<select required value={person} onChange={e=>setPerson(e.target.value)}><option value="">Sélectionner...</option>{people.map(p=><option key={p.id} value={p.id}>{p.full_name}</option>)}</select></label><label>Titre<input required value={title} onChange={e=>setTitle(e.target.value)} placeholder="Ex. Contrat CDI 2026"/></label><label className="upload-zone" onClick={()=>fileRef.current?.click()}><Upload size={20}/><span>{file?file.name:'Importer un PDF (optionnel)'}</span><input ref={fileRef} type="file" accept="application/pdf" hidden onChange={e=>setFile(e.target.files?.[0]||null)}/></label><div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Annuler</button><button className="primary-button">Enregistrer</button></div></form></div>
+}
